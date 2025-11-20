@@ -1,7 +1,7 @@
 
 import { GoogleGenAI } from "@google/genai";
 import { DIRECTOR_SYSTEM_PROMPT, CONTENT_PLANNER_SYSTEM_PROMPT } from "../prompts";
-import { DirectorOutput, ContentPlan, MarketingRoute, ProductAnalysis } from "../types";
+import { DirectorOutput, ContentPlan, MarketingRoute, ProductAnalysis, ContentItem } from "../types";
 
 // --- Helpers ---
 
@@ -110,7 +110,7 @@ export const generateContentPlan = async (
         config: {
             systemInstruction: CONTENT_PLANNER_SYSTEM_PROMPT,
             responseMimeType: "application/json",
-            thinkingConfig: { thinkingBudget: 2048 } // Give it some thought for structure
+            thinkingConfig: { thinkingBudget: 2048 } 
         }
     });
 
@@ -126,7 +126,7 @@ export const generateContentPlan = async (
 export const generateMarketingImage = async (
     prompt: string, 
     referenceImageBase64?: string,
-    aspectRatio: '1:1' | '9:16' | '3:4' | '4:3' | '16:9' = '3:4' // Default to 3:4 if not specified
+    aspectRatio: '1:1' | '9:16' | '3:4' | '4:3' | '16:9' = '3:4'
 ): Promise<string> => {
   if (!process.env.API_KEY) {
     throw new Error("找不到 API 金鑰。");
@@ -148,17 +148,13 @@ export const generateMarketingImage = async (
     }
   }
 
-  // Map custom ratio types to Gemini API allowed strings if needed, 
-  // strictly Gemini 3 Pro supports "1:1", "3:4", "4:3", "9:16", "16:9"
-  const finalRatio = aspectRatio; 
-
   const response = await ai.models.generateContent({
     model: "gemini-3-pro-image-preview",
     contents: { parts: parts },
     config: {
       imageConfig: {
-          aspectRatio: finalRatio,
-          imageSize: "1K" // 1K is sufficient
+          aspectRatio: aspectRatio,
+          imageSize: "1K" 
       }
     },
   });
@@ -174,4 +170,50 @@ export const generateMarketingImage = async (
   }
   
   throw new Error("未生成圖片。");
+};
+
+export const generateFullReport = (
+  analysis: ProductAnalysis,
+  routes: MarketingRoute[],
+  selectedRouteIndex: number,
+  contentPlan: ContentPlan,
+  editedPlanItems: ContentItem[]
+): string => {
+  const route = routes[selectedRouteIndex];
+  const date = new Date().toLocaleDateString();
+
+  let report = `AI PM Designer PRO v2.0 - Product Marketing Strategy Report\n`;
+  report += `Date: ${date}\n`;
+  report += `=================================================\n\n`;
+
+  report += `[PRODUCT ANALYSIS]\n`;
+  report += `Name: ${analysis.name}\n`;
+  report += `Visual Description: ${analysis.visual_description}\n`;
+  report += `Key Features: ${analysis.key_features_zh}\n\n`;
+
+  report += `[SELECTED STRATEGY: ${route.route_name}]\n`;
+  report += `Headline: ${route.headline_zh}\n`;
+  report += `Subhead: ${route.subhead_zh}\n`;
+  report += `Style: ${route.style_brief_zh}\n\n`;
+
+  report += `[PHASE 1: CONCEPT VISUALS]\n`;
+  route.image_prompts.forEach((p, i) => {
+    report += `Poster ${i + 1}:\n`;
+    report += `Summary: ${p.summary_zh}\n`;
+    report += `Prompt: ${p.prompt_en}\n\n`;
+  });
+
+  report += `-------------------------------------------------\n`;
+  report += `[PHASE 2: CONTENT SUITE PLAN]\n`;
+  report += `Plan Name: ${contentPlan.plan_name}\n\n`;
+
+  editedPlanItems.forEach((item) => {
+    report += `--- Slide: ${item.type} (${item.ratio}) ---\n`;
+    report += `Title: ${item.title_zh}\n`;
+    report += `Copy: ${item.copy_zh}\n`;
+    report += `Visual Summary: ${item.visual_summary_zh}\n`;
+    report += `PROMPT:\n${item.visual_prompt_en}\n\n`;
+  });
+
+  return report;
 };

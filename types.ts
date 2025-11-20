@@ -44,7 +44,7 @@ export enum AppState {
   IDLE,
   ANALYZING,
   RESULTS, // Phase 1 Done (Routes visible)
-  PLANNING, // Phase 2 Analyzing
-  SUITE_READY, // Phase 2 Done (8 images plan ready)
+  PLANNING, // Phase 2 Analyzing (Generating Script)
+  SUITE_READY, // Phase 2 Script Ready (Review Mode)
   ERROR
 }

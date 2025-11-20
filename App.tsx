@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
-import { analyzeProductImage, generateContentPlan } from './services/geminiService';
-import { DirectorOutput, AppState, ContentPlan } from './types';
+import { analyzeProductImage, generateContentPlan, generateFullReport } from './services/geminiService';
+import { DirectorOutput, AppState, ContentPlan, ContentItem } from './types';
 import { Spinner } from './components/Spinner';
 import { ProductCard } from './components/ProductCard';
 import { PromptCard } from './components/PromptCard';
@@ -21,7 +21,10 @@ const App: React.FC = () => {
   // --- Results ---
   const [analysisResult, setAnalysisResult] = useState<DirectorOutput | null>(null);
   const [activeRouteIndex, setActiveRouteIndex] = useState<number>(0);
+  
+  // Phase 2 Data
   const [contentPlan, setContentPlan] = useState<ContentPlan | null>(null);
+  const [editedPlanItems, setEditedPlanItems] = useState<ContentItem[]>([]);
 
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [isGuideOpen, setIsGuideOpen] = useState(false);
@@ -48,6 +51,7 @@ const App: React.FC = () => {
       // Reset results but keep inputs
       setAnalysisResult(null);
       setContentPlan(null);
+      setEditedPlanItems([]);
       setAppState(AppState.IDLE);
     }
   };
@@ -79,20 +83,35 @@ const App: React.FC = () => {
     try {
       const plan = await generateContentPlan(route, analysis, refCopy);
       setContentPlan(plan);
+      setEditedPlanItems(plan.items); // Initialize edited items with generated ones
       setAppState(AppState.SUITE_READY);
     } catch (e: any) {
       console.error(e);
       setErrorMsg(e.message || "內容規劃失敗");
-      // Don't fully crash, just stay in RESULTS state but show error
       setAppState(AppState.RESULTS);
     }
   };
 
   const handleDownloadReport = () => {
-    if (!analysisResult) return;
-    // ... (Basic implementation same as before, simplified for brevity here)
-    // In a real PRO version, we would append the Content Plan details too.
-    alert("PRO 版報告下載功能將包含8張圖企劃內容。");
+    if (!analysisResult || !contentPlan) return;
+    
+    const textReport = generateFullReport(
+      analysisResult.product_analysis,
+      analysisResult.marketing_routes,
+      activeRouteIndex,
+      contentPlan,
+      editedPlanItems
+    );
+
+    const blob = new Blob([textReport], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `PRO_Strategy_Report_${analysisResult.product_analysis.name.replace(/\s+/g, '_')}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   // --- Render Helpers ---
@@ -102,7 +121,7 @@ const App: React.FC = () => {
         {/* Left: Image Upload */}
         <div className="order-2 md:order-1">
             <label 
-                className={`flex flex-col items-center justify-center w-full h-64 border-2 border-dashed rounded-2xl cursor-pointer transition-all duration-300 relative overflow-hidden ${
+                className={`flex flex-col items-center justify-center w-full h-80 border-2 border-dashed rounded-2xl cursor-pointer transition-all duration-300 relative overflow-hidden ${
                 selectedFile ? 'border-purple-500 bg-[#15151a]' : 'border-gray-600 hover:border-gray-400 hover:bg-[#1a1a1f]'
                 }`}
             >
@@ -117,6 +136,7 @@ const App: React.FC = () => {
                     <div className="flex flex-col items-center justify-center pt-5 pb-6">
                         <svg className="w-10 h-10 mb-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                         <p className="mb-2 text-sm text-gray-400">上傳產品圖片</p>
+                        <p className="text-xs text-gray-500">支援 JPG, PNG</p>
                     </div>
                 )}
                 <input type="file" className="hidden" onChange={handleFileChange} accept="image/*" />
@@ -126,31 +146,32 @@ const App: React.FC = () => {
         {/* Right: Text Inputs */}
         <div className="order-1 md:order-2 flex flex-col gap-4">
             <div>
-                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">產品名稱</label>
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">1. 產品名稱 (Product Name)</label>
                 <input 
                     type="text" 
                     value={productName}
                     onChange={(e) => setProductName(e.target.value)}
-                    placeholder="例如：Sony WH-1000XM5"
+                    placeholder="例如：Sony WH-1000XM5, Aesop 洗手乳..."
                     className="w-full bg-[#15151a] border border-white/10 rounded-lg px-4 py-3 text-white placeholder-gray-600 focus:border-purple-500 focus:outline-none transition-colors"
                 />
             </div>
             <div>
-                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">品牌資訊 / 背景 (Context)</label>
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">2. 品牌資訊 / 背景 (Context)</label>
                 <textarea 
                     value={brandContext}
                     onChange={(e) => setBrandContext(e.target.value)}
-                    placeholder="貼上品牌故事、官網文案或網址 (AI 將讀取文字內容)..."
-                    className="w-full bg-[#15151a] border border-white/10 rounded-lg px-4 py-3 text-white placeholder-gray-600 focus:border-purple-500 focus:outline-none transition-colors h-28 resize-none text-sm"
+                    placeholder="可輸入品牌官網網址(AI會分析網址文字) 或直接貼上品牌故事、核心價值..."
+                    className="w-full bg-[#15151a] border border-white/10 rounded-lg px-4 py-3 text-white placeholder-gray-600 focus:border-purple-500 focus:outline-none transition-colors h-40 resize-none text-sm leading-relaxed"
                 />
             </div>
             
             {selectedFile && appState === AppState.IDLE && (
                 <button 
                 onClick={handleAnalyze}
-                className="mt-auto w-full py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-bold text-sm uppercase tracking-widest rounded-lg hover:opacity-90 transition-opacity shadow-lg shadow-purple-900/30"
+                className="mt-auto w-full py-4 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-bold text-sm uppercase tracking-widest rounded-lg hover:opacity-90 transition-opacity shadow-lg shadow-purple-900/30 flex items-center justify-center gap-2"
                 >
-                開始分析 (Generate Strategy)
+                <span>開始 AI 分析</span>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
                 </button>
             )}
         </div>
@@ -177,6 +198,7 @@ const App: React.FC = () => {
                 onClick={() => {
                     setActiveRouteIndex(idx);
                     setContentPlan(null); // Reset Phase 2 if route changes
+                    setEditedPlanItems([]);
                     if (appState === AppState.SUITE_READY) setAppState(AppState.RESULTS);
                 }}
                 className={`p-4 rounded-xl border text-left transition-all duration-300 ${
@@ -200,24 +222,27 @@ const App: React.FC = () => {
         </div>
 
         {/* Phase 2 Trigger Area */}
-        <div className="border-t border-white/10 pt-12">
+        <div className="border-t border-white/10 pt-12" id="phase2-section">
             <div className="bg-[#1e1e24] rounded-2xl p-8 border border-purple-500/20 relative overflow-hidden">
                 <div className="absolute top-0 right-0 p-32 bg-purple-600/10 rounded-full blur-3xl -mr-16 -mt-16"></div>
                 
                 <div className="relative z-10 flex flex-col md:flex-row gap-8">
                     <div className="flex-1">
-                        <h3 className="text-2xl font-bold text-white serif mb-2">Phase 2: 全套內容生成</h3>
-                        <p className="text-gray-400 text-sm mb-4">
-                            根據當前選擇的策略 <strong>"{activeRoute.route_name}"</strong>，生成包含 2 張主圖與 6 張長圖 (Stories) 的完整行銷素材包。
+                        <div className="flex items-center gap-2 mb-2">
+                            <h3 className="text-2xl font-bold text-white serif">Phase 2: 全套內容生成</h3>
+                            <span className="px-2 py-0.5 bg-purple-600 text-white text-[10px] font-bold uppercase rounded">PRO</span>
+                        </div>
+                        <p className="text-gray-400 text-sm mb-6">
+                            AI 將根據 <strong>"{activeRoute.route_name}"</strong> 策略，規劃一套包含 2 張主圖與 6 張社群長圖 (Stories) 的完整銷售漏斗素材。
                         </p>
                         
                         <div className="space-y-2">
-                             <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">參考文案 / 競品內容 (選填)</label>
+                             <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">參考文案 / 競品參考 (Optional)</label>
                              <textarea 
                                 value={refCopy}
                                 onChange={(e) => setRefCopy(e.target.value)}
-                                placeholder="貼上同類商品的文案，AI 將分析其說服邏輯並運用於您的產品..."
-                                className="w-full bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-gray-300 focus:border-purple-500 focus:outline-none h-24 resize-none"
+                                placeholder="請貼上同類型商品的熱銷文案，或競品官網內容。AI 將拆解其「說服邏輯」與「結構」，並應用於您的產品內容規劃中..."
+                                className="w-full bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-gray-300 focus:border-purple-500 focus:outline-none h-32 resize-none"
                              />
                         </div>
                     </div>
@@ -226,7 +251,7 @@ const App: React.FC = () => {
                         {appState === AppState.PLANNING ? (
                             <div className="h-12 flex items-center justify-center gap-2 text-purple-400">
                                 <Spinner className="w-5 h-5" />
-                                <span className="text-sm font-bold animate-pulse">正在規劃內容腳本...</span>
+                                <span className="text-sm font-bold animate-pulse">正在規劃腳本...</span>
                             </div>
                         ) : (
                             <button 
@@ -234,7 +259,7 @@ const App: React.FC = () => {
                                 className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2 shadow-lg shadow-purple-900/50"
                             >
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
-                                生成 8 張圖企劃
+                                生成 8 張圖腳本
                             </button>
                         )}
                     </div>
@@ -244,8 +269,20 @@ const App: React.FC = () => {
 
         {/* Phase 2 Results */}
         {(appState === AppState.SUITE_READY || contentPlan) && contentPlan && (
-            <div className="mt-12">
-                <ContentSuite plan={contentPlan} referenceImage={null} />
+            <div className="mt-12 relative">
+                 <div className="absolute -top-6 right-0">
+                    <button 
+                        onClick={handleDownloadReport}
+                        className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-sm text-gray-300 hover:text-white transition-all"
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                        下載全案策略報告 (.txt)
+                    </button>
+                </div>
+                <ContentSuite 
+                    plan={contentPlan} 
+                    onPlanUpdate={(newItems) => setEditedPlanItems(newItems)}
+                />
             </div>
         )}
       </div>
@@ -259,16 +296,16 @@ const App: React.FC = () => {
       {/* Header */}
       <header className="w-full py-6 border-b border-white/5 bg-[#0f0f12]/90 backdrop-blur-md sticky top-0 z-50">
         <div className="container mx-auto px-6 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center">
-                    <span className="text-white font-bold">PRO</span>
+            <div className="flex items-center gap-3 cursor-pointer" onClick={() => setAppState(AppState.IDLE)}>
+                <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center shadow-lg shadow-purple-600/50">
+                    <span className="text-white font-bold">PM</span>
                 </div>
                 <h1 className="text-lg font-bold text-white hidden md:block">
-                  AI Product Marketing Designer <span className="text-purple-500 text-xs align-top">v2.0</span>
+                  AI Product Marketing Designer <span className="text-purple-500 text-xs align-top ml-1">PRO</span>
                 </h1>
             </div>
             <div className="flex gap-4">
-                <button onClick={() => setIsGuideOpen(true)} className="text-gray-400 hover:text-white text-sm">功能簡介</button>
+                <button onClick={() => setIsGuideOpen(true)} className="text-gray-400 hover:text-white text-sm font-medium transition-colors">功能導覽 v2.0</button>
                 <button onClick={ensureApiKey} className="text-purple-400 hover:text-purple-300 text-sm font-bold">API 設定</button>
             </div>
         </div>
@@ -285,20 +322,32 @@ const App: React.FC = () => {
 
         {/* Loading States */}
         {(appState === AppState.ANALYZING) && (
-             <div className="flex flex-col items-center justify-center mt-20 space-y-6 text-center">
-                <Spinner className="w-16 h-16 text-purple-500" />
-                <h2 className="text-2xl font-bold text-white">AI 總監正在分析產品與品牌...</h2>
+             <div className="flex flex-col items-center justify-center mt-20 space-y-6 text-center animate-in fade-in zoom-in duration-500">
+                <div className="relative">
+                    <Spinner className="w-20 h-20 text-purple-600" />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                         <div className="w-10 h-10 bg-white rounded-full opacity-10 animate-ping"></div>
+                    </div>
+                </div>
+                <div>
+                    <h2 className="text-2xl font-bold text-white mb-2">AI 總監正在分析產品</h2>
+                    <p className="text-gray-400">正在解讀品牌語意與視覺特徵...</p>
+                </div>
             </div>
         )}
 
         {/* Main Views */}
         {appState === AppState.IDLE && (
-            <div className="flex-1 flex flex-col items-center mt-12 text-center">
-                <h2 className="text-4xl md:text-6xl font-bold text-white serif mb-4">
-                    打造完整的品牌視覺資產
+            <div className="flex-1 flex flex-col items-center mt-8 text-center">
+                <div className="inline-block px-3 py-1 rounded-full bg-purple-900/30 border border-purple-500/30 text-purple-300 text-xs font-bold uppercase tracking-widest mb-6">
+                    New Version 2.0
+                </div>
+                <h2 className="text-4xl md:text-6xl font-bold text-white serif mb-4 leading-tight">
+                    打造完整的<br/>品牌視覺資產
                 </h2>
-                <p className="text-gray-400 max-w-xl mx-auto mb-8">
-                    PRO 版：結合產品圖、品牌語意與參考文案，一鍵生成廣告海報與社群內容套圖 (Content Suite)。
+                <p className="text-gray-400 max-w-xl mx-auto mb-8 text-lg">
+                    結合產品識別、品牌故事與競品策略。<br/>
+                    一鍵生成廣告海報與 <span className="text-purple-400 font-bold">8 張完整的社群行銷套圖</span>。
                 </p>
                 {renderInputs()}
             </div>
