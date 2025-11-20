@@ -30,6 +30,7 @@ const App: React.FC = () => {
   const [isGuideOpen, setIsGuideOpen] = useState(false);
 
   // --- API Key Handling ---
+  // Used before critical actions to ensure a key exists
   const ensureApiKey = async () => {
     const aiStudio = (window as any).aistudio;
     if (aiStudio) {
@@ -37,6 +38,14 @@ const App: React.FC = () => {
       if (!hasKey) {
         await aiStudio.openSelectKey();
       }
+    }
+  };
+
+  // Used for the "API Settings" button to force open the dialog
+  const openApiSettings = async () => {
+    const aiStudio = (window as any).aistudio;
+    if (aiStudio) {
+      await aiStudio.openSelectKey();
     }
   };
 
@@ -306,7 +315,7 @@ const App: React.FC = () => {
             </div>
             <div className="flex gap-4">
                 <button onClick={() => setIsGuideOpen(true)} className="text-gray-400 hover:text-white text-sm font-medium transition-colors">功能導覽 v2.0</button>
-                <button onClick={ensureApiKey} className="text-purple-400 hover:text-purple-300 text-sm font-bold">API 設定</button>
+                <button onClick={openApiSettings} className="text-purple-400 hover:text-purple-300 text-sm font-bold">API 設定</button>
             </div>
         </div>
       </header>
@@ -361,3 +370,4 @@ const App: React.FC = () => {
 };
 
 export default App;
+    
