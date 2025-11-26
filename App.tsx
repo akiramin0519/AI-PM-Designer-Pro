@@ -7,6 +7,8 @@ import { PromptCard } from './components/PromptCard';
 import { GuideModal } from './components/GuideModal';
 import { ApiKeyModal } from './components/ApiKeyModal';
 import { ContentSuite } from './components/ContentSuite';
+import { AppError, ErrorType } from './utils/errorHandler';
+import { validateProductName, validateBrandContext, validateRefCopy } from './utils/validators';
 
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>(AppState.IDLE);
@@ -27,6 +29,8 @@ const App: React.FC = () => {
   const [editedPlanItems, setEditedPlanItems] = useState<ContentItem[]>([]);
 
   const [errorMsg, setErrorMsg] = useState<string>("");
+  const [errorType, setErrorType] = useState<ErrorType | null>(null);
+  const [inputErrors, setInputErrors] = useState<{ productName?: string; brandContext?: string; refCopy?: string }>({});
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   
   // API Key State
@@ -72,20 +76,43 @@ const App: React.FC = () => {
         return;
     }
 
+    // 輸入驗證
+    const nameValidation = validateProductName(productName);
+    const contextValidation = validateBrandContext(brandContext);
+    
+    if (!nameValidation.valid || !contextValidation.valid) {
+      setInputErrors({
+        productName: nameValidation.error,
+        brandContext: contextValidation.error,
+      });
+      return;
+    }
+    
+    setInputErrors({});
     setErrorMsg("");
+    setErrorType(null);
     setAppState(AppState.ANALYZING);
+    
     try {
       const result = await analyzeProductImage(selectedFile, productName, brandContext);
       setAnalysisResult(result);
       setAppState(AppState.RESULTS);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      setErrorMsg(e.message || "分析過程中發生了意外錯誤。");
-      setAppState(AppState.ERROR);
       
-      // If auth error, re-open modal
-      if (typeof e.message === 'string' && (e.message.includes("API Key") || e.message.includes("Permission"))) {
-        setIsKeyModalOpen(true);
+      if (e instanceof AppError) {
+        setErrorMsg(e.userMessage);
+        setErrorType(e.type);
+        setAppState(AppState.ERROR);
+        
+        // 如果是認證錯誤，重新開啟 API Key 設定視窗
+        if (e.type === ErrorType.AUTH) {
+          setIsKeyModalOpen(true);
+        }
+      } else {
+        setErrorMsg("分析過程中發生了意外錯誤，請稍候再試。");
+        setErrorType(ErrorType.UNKNOWN);
+        setAppState(AppState.ERROR);
       }
     }
   };
@@ -95,7 +122,16 @@ const App: React.FC = () => {
     const route = analysisResult.marketing_routes[activeRouteIndex];
     const analysis = analysisResult.product_analysis;
     
+    // 輸入驗證
+    const refCopyValidation = validateRefCopy(refCopy);
+    if (!refCopyValidation.valid) {
+      setInputErrors({ refCopy: refCopyValidation.error });
+      return;
+    }
+    
+    setInputErrors({});
     setErrorMsg("");
+    setErrorType(null);
     setAppState(AppState.PLANNING);
     
     try {
@@ -103,9 +139,16 @@ const App: React.FC = () => {
       setContentPlan(plan);
       setEditedPlanItems(plan.items); // Initialize edited items with generated ones
       setAppState(AppState.SUITE_READY);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      setErrorMsg(e.message || "內容規劃失敗");
+      
+      if (e instanceof AppError) {
+        setErrorMsg(e.userMessage);
+        setErrorType(e.type);
+      } else {
+        setErrorMsg("內容規劃失敗，請稍候再試。");
+        setErrorType(ErrorType.UNKNOWN);
+      }
       setAppState(AppState.RESULTS);
     }
   };
@@ -168,19 +211,39 @@ const App: React.FC = () => {
                 <input 
                     type="text" 
                     value={productName}
-                    onChange={(e) => setProductName(e.target.value)}
+                    onChange={(e) => {
+                      setProductName(e.target.value);
+                      if (inputErrors.productName) {
+                        setInputErrors({ ...inputErrors, productName: undefined });
+                      }
+                    }}
                     placeholder="例如：Sony WH-1000XM5, Aesop 洗手乳..."
-                    className="w-full bg-[#15151a] border border-white/10 rounded-lg px-4 py-3 text-white placeholder-gray-600 focus:border-purple-500 focus:outline-none transition-colors"
+                    className={`w-full bg-[#15151a] border rounded-lg px-4 py-3 text-white placeholder-gray-600 focus:outline-none transition-colors ${
+                      inputErrors.productName ? 'border-red-500' : 'border-white/10 focus:border-purple-500'
+                    }`}
                 />
+                {inputErrors.productName && (
+                  <p className="text-red-400 text-xs mt-1">{inputErrors.productName}</p>
+                )}
             </div>
             <div>
                 <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">2. 品牌資訊 / 背景 (Context)</label>
                 <textarea 
                     value={brandContext}
-                    onChange={(e) => setBrandContext(e.target.value)}
+                    onChange={(e) => {
+                      setBrandContext(e.target.value);
+                      if (inputErrors.brandContext) {
+                        setInputErrors({ ...inputErrors, brandContext: undefined });
+                      }
+                    }}
                     placeholder="可輸入品牌官網網址(AI會分析網址文字) 或直接貼上品牌故事、核心價值..."
-                    className="w-full bg-[#15151a] border border-white/10 rounded-lg px-4 py-3 text-white placeholder-gray-600 focus:border-purple-500 focus:outline-none transition-colors h-40 resize-none text-sm leading-relaxed"
+                    className={`w-full bg-[#15151a] border rounded-lg px-4 py-3 text-white placeholder-gray-600 focus:outline-none transition-colors h-40 resize-none text-sm leading-relaxed ${
+                      inputErrors.brandContext ? 'border-red-500' : 'border-white/10 focus:border-purple-500'
+                    }`}
                 />
+                {inputErrors.brandContext && (
+                  <p className="text-red-400 text-xs mt-1">{inputErrors.brandContext}</p>
+                )}
             </div>
             
             {selectedFile && appState === AppState.IDLE && (
@@ -258,10 +321,20 @@ const App: React.FC = () => {
                              <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">參考文案 / 競品參考 (Optional)</label>
                              <textarea 
                                 value={refCopy}
-                                onChange={(e) => setRefCopy(e.target.value)}
+                                onChange={(e) => {
+                                  setRefCopy(e.target.value);
+                                  if (inputErrors.refCopy) {
+                                    setInputErrors({ ...inputErrors, refCopy: undefined });
+                                  }
+                                }}
                                 placeholder="請貼上同類型商品的熱銷文案，或競品官網內容。AI 將拆解其「說服邏輯」與「結構」，並應用於您的產品內容規劃中..."
-                                className="w-full bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-gray-300 focus:border-purple-500 focus:outline-none h-32 resize-none"
+                                className={`w-full bg-black/30 border rounded-lg p-3 text-sm text-gray-300 focus:outline-none h-32 resize-none ${
+                                  inputErrors.refCopy ? 'border-red-500' : 'border-white/10 focus:border-purple-500'
+                                }`}
                              />
+                             {inputErrors.refCopy && (
+                               <p className="text-red-400 text-xs">{inputErrors.refCopy}</p>
+                             )}
                         </div>
                     </div>
                     
@@ -331,14 +404,26 @@ const App: React.FC = () => {
                  <div className="flex items-center justify-between mb-4 border-b border-red-500/30 pb-2">
                     <h3 className="text-red-400 font-bold flex items-center gap-2 text-lg">
                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                        Google API Error (Raw Debug Info)
+                        {errorType === ErrorType.AUTH ? '認證錯誤' : 
+                         errorType === ErrorType.NETWORK ? '網路錯誤' :
+                         errorType === ErrorType.RATE_LIMIT ? '請求限制' :
+                         errorType === ErrorType.VALIDATION ? '驗證錯誤' :
+                         '發生錯誤'}
                     </h3>
-                    <button onClick={() => setAppState(AppState.IDLE)} className="text-sm text-red-300 hover:text-white underline">重置並返回首頁</button>
+                    <button onClick={() => {
+                      setAppState(AppState.IDLE);
+                      setErrorMsg("");
+                      setErrorType(null);
+                    }} className="text-sm text-red-300 hover:text-white underline">重置並返回首頁</button>
                  </div>
-                 {/* Show raw error text with better formatting for JSON and Scrolling */}
-                 <pre className="font-mono text-xs text-red-200/90 bg-black/60 p-4 rounded overflow-auto whitespace-pre-wrap break-words max-h-[400px]">
+                 <p className="text-red-200 text-sm leading-relaxed">
                     {errorMsg}
-                 </pre>
+                 </p>
+                 {errorType === ErrorType.RATE_LIMIT && (
+                   <p className="text-red-300/70 text-xs mt-3">
+                      💡 提示：API 請求次數已達上限，請稍候 1-2 分鐘後再試，或檢查您的 API 配額設定。
+                   </p>
+                 )}
             </div>
         )}
 
