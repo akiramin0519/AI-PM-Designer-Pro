@@ -283,15 +283,25 @@ export const generateContentPlan = async (
       try {
         const cleaned = cleanJson(response.text);
         const parsed = JSON.parse(cleaned);
+        
+        // 記錄原始回應以便除錯
+        console.log('內容企劃 AI 回應原始資料：', JSON.stringify(parsed, null, 2));
+        
         // 使用 Zod 驗證回應格式
         return validateContentPlan(parsed);
       } catch (e) {
+        console.error("Failed to parse or validate ContentPlan JSON", response.text);
+        console.error("Error details:", e);
+        
         if (e instanceof AppError) {
           throw e;
         }
+        
+        // 提供更詳細的錯誤訊息（開發用）
+        const errorMessage = e instanceof Error ? e.message : String(e);
         throw new AppError({
           type: ErrorType.VALIDATION,
-          message: "企劃生成格式錯誤",
+          message: `企劃生成格式錯誤: ${errorMessage}`,
           userMessage: "內容企劃格式不正確，請再試一次。如問題持續發生，請聯繫技術支援。",
           originalError: e,
         });

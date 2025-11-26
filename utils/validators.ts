@@ -34,21 +34,21 @@ export const DirectorOutputSchema = z.object({
   marketing_routes: z.array(MarketingRouteSchema).min(1).max(10), // 允許 1-10 條路線
 });
 
-// ContentItem Schema
+// ContentItem Schema - 使用更寬鬆的驗證
 export const ContentItemSchema = z.object({
-  id: z.string().regex(/^img_\d+_(white|lifestyle|hook|problem|solution|features|trust|cta)$/, 'ID 格式不正確'),
+  id: z.string().min(1), // 放寬 ID 格式要求，只要非空即可
   type: z.enum(['main_white', 'main_lifestyle', 'story_slide']),
   ratio: z.enum(['1:1', '9:16', '16:9']),
-  title_zh: z.string().min(5).max(30),
-  copy_zh: z.string().min(20).max(100),
-  visual_prompt_en: z.string().min(50).max(500),
-  visual_summary_zh: z.string().min(10).max(50),
+  title_zh: z.string().min(1).max(100), // 放寬長度限制
+  copy_zh: z.string().min(1).max(500), // 放寬長度限制
+  visual_prompt_en: z.string().min(20).max(1000), // 放寬長度限制
+  visual_summary_zh: z.string().min(1).max(200).optional().default(''), // 允許空字串或省略
 });
 
-// ContentPlan Schema
+// ContentPlan Schema - 使用更寬鬆的驗證
 export const ContentPlanSchema = z.object({
-  plan_name: z.string().min(10).max(50),
-  items: z.array(ContentItemSchema).length(8, '必須包含恰好 8 個內容項目'),
+  plan_name: z.string().min(1).max(200), // 放寬長度限制
+  items: z.array(ContentItemSchema).min(1).max(20), // 允許 1-20 個項目，不強制恰好 8 個
 });
 
 /**
@@ -126,7 +126,83 @@ export const validateContentPlan = (data: unknown): ContentPlan => {
     return result.data;
   }
   
-  // 如果失敗，記錄詳細錯誤
+  // 如果失敗，嘗試修復常見問題
+  if (typeof data === 'object' && data !== null) {
+    const fixed = { ...data } as Record<string, unknown>;
+    
+    // 確保 items 是陣列
+    if (!Array.isArray(fixed.items)) {
+      fixed.items = [];
+    }
+    
+    // 修復每個 item 的常見問題
+    if (Array.isArray(fixed.items)) {
+      fixed.items = fixed.items.map((item: unknown, index: number) => {
+        if (typeof item === 'object' && item !== null) {
+          const itemObj = item as Record<string, unknown>;
+          
+          // 如果沒有 id，自動生成
+          if (!itemObj.id || typeof itemObj.id !== 'string') {
+            const typeMap: Record<string, string> = {
+              'main_white': 'white',
+              'main_lifestyle': 'lifestyle',
+              'story_slide': index === 0 ? 'hook' : 
+                            index === 1 ? 'problem' :
+                            index === 2 ? 'solution' :
+                            index === 3 ? 'features' :
+                            index === 4 ? 'trust' : 'cta'
+            };
+            const itemType = (itemObj.type as string) || 'story_slide';
+            itemObj.id = `img_${index + 1}_${typeMap[itemType] || 'item'}`;
+          }
+          
+          // 確保 type 存在
+          if (!itemObj.type || !['main_white', 'main_lifestyle', 'story_slide'].includes(itemObj.type as string)) {
+            // 根據 index 推斷 type
+            if (index === 0) itemObj.type = 'main_white';
+            else if (index === 1) itemObj.type = 'main_lifestyle';
+            else itemObj.type = 'story_slide';
+          }
+          
+          // 確保 ratio 存在
+          if (!itemObj.ratio || !['1:1', '9:16', '16:9'].includes(itemObj.ratio as string)) {
+            itemObj.ratio = itemObj.type === 'story_slide' ? '9:16' : '1:1';
+          }
+          
+          // 確保字串欄位存在且非空
+          if (!itemObj.title_zh || typeof itemObj.title_zh !== 'string') {
+            itemObj.title_zh = `項目 ${index + 1}`;
+          }
+          if (!itemObj.copy_zh || typeof itemObj.copy_zh !== 'string') {
+            itemObj.copy_zh = '';
+          }
+          if (!itemObj.visual_prompt_en || typeof itemObj.visual_prompt_en !== 'string') {
+            itemObj.visual_prompt_en = '';
+          }
+          if (!itemObj.visual_summary_zh || typeof itemObj.visual_summary_zh !== 'string') {
+            itemObj.visual_summary_zh = '';
+          }
+          
+          return itemObj;
+        }
+        return item;
+      });
+    }
+    
+    // 確保 plan_name 存在
+    if (!fixed.plan_name || typeof fixed.plan_name !== 'string') {
+      fixed.plan_name = '內容企劃';
+    }
+    
+    // 再次嘗試解析修復後的資料
+    const retryResult = ContentPlanSchema.safeParse(fixed);
+    if (retryResult.success) {
+      console.warn('內容企劃驗證失敗後成功修復資料格式');
+      return retryResult.data;
+    }
+  }
+  
+  // 如果還是失敗，記錄詳細錯誤並拋出
   const errors = result.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join('\n');
   console.error('內容企劃格式驗證失敗：', result.error);
   console.error('原始資料：', JSON.stringify(data, null, 2));
